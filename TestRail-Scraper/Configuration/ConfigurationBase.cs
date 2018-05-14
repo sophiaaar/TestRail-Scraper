@@ -15,14 +15,4 @@ public class ConfigurationBase : IConfiguration
 	{
 		return _plugins.ToArray();
 	}
-
-	protected void UseMiddleware<T>() where T : IMiddleware
-	{
-		_pipeline.Add(typeof(T));
-	}
-
-	protected void UsePlugin<T>() where T : IPlugin
-	{
-		_plugins.Add(typeof(T));
-	}
 }
