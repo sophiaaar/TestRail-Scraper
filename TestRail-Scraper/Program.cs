@@ -28,8 +28,12 @@ namespace TestRailScraper
 			public string id;
 			public string title;
 			public string suiteId;
+			public string suiteName;
 			public string sectionId;
+			public string sectionName;
+			public string parentSectionId;
 			public string projectId;
+			public string projectName;
 		}
 
         public static void Main(string[] args)
@@ -60,6 +64,11 @@ namespace TestRailScraper
 		public static JArray GetCasesInProject(APIClient client, string projectID)
         {
             return (JArray)client.SendGet("get_cases/" + projectID);
+        }
+
+		public static JObject GetSection(APIClient client, string sectionID)
+        {
+			return (JObject)client.SendGet("get_section/" + sectionID);
         }
 
 		public static List<Project> CreateListOfProjects(JArray projectsArray)
@@ -95,7 +104,7 @@ namespace TestRailScraper
 					string suiteId = suiteObject.Property("id").Value.ToString();
 					string suiteName = suiteObject.Property("name").Value.ToString();
 					string projectId = suiteObject.Property("project_id").Value.ToString();
-
+                    
 					Suite currentSuite;
 					currentSuite.id = suiteId;
 					currentSuite.name = suiteName;
@@ -106,6 +115,57 @@ namespace TestRailScraper
 			}
 
 			return suites;
+		}
+
+		public static List<Case> CreateListOfCases(APIClient client, List<Project> projects, List<Suite> suites)
+		{
+			List<Case> cases = new List<Case>();
+
+			for (int i = 0; i < projects.Count; i++)
+			{
+				JArray casesArray = GetCasesInProject(client, projects[i].id);
+				for (int j = 0; j < casesArray.Count; j++)
+				{
+					JObject caseObject = casesArray[j].ToObject<JObject>();
+
+					string caseId = caseObject.Property("id").Value.ToString();
+					string caseTitle = caseObject.Property("title").Value.ToString();
+					string suiteId = caseObject.Property("suite_id").Value.ToString();
+					string sectionId = caseObject.Property("section_id").Value.ToString();
+
+					Suite currentSuite = suites.Find(x => x.id == suiteId);
+					string suiteName = currentSuite.name;
+
+					string projectId = projects[i].id;
+					string projectName = projects[i].name;
+
+					JObject currentSection = GetSection(client, sectionId);
+					string sectionName = currentSection.Property("name").Value.ToString();
+
+					string parentSectionId = "0";
+
+					if (currentSection.Property("parent_id") != null)
+					{
+						parentSectionId = currentSection.Property("parent_id").Value.ToString();
+					}
+
+					Case currentCase;
+					currentCase.id = caseId;
+					currentCase.title = caseTitle;
+					currentCase.suiteId = suiteId;
+					currentCase.sectionId = sectionId;
+					currentCase.suiteName = suiteName;
+					currentCase.projectId = projectId;
+					currentCase.projectName = projectName;
+					currentCase.sectionName = sectionName;
+					currentCase.parentSectionId = parentSectionId;
+
+					cases.Add(currentCase);
+                  
+				}
+			}
+
+			return cases;
 		}
     }
 }
