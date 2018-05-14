@@ -2,28 +2,31 @@
 using System.Collections.Generic;
 using Gurock.TestRail;
 using Newtonsoft.Json.Linq;
+using MongoDB.Driver;
+using MongoDB.Bson;
+using MongoDB;
 
 namespace TestRailScraper
 {
-    class MainClass
-    {
+	class MainClass
+	{
 		private static readonly IConfigReader _configReader = new ConfigReader();
-		//public static List<Project> projects = new List<Project>();
+		const string mongoConnectionString = ""; //redacted - insert database url here
 
-        public struct Project
+		public struct Project
 		{
 			public string id;
 			public string name;
 		}
 
-        public struct Suite
+		public struct Suite
 		{
 			public string id;
 			public string name;
 			public string projectId;
 		}
 
-        public struct Case
+		public struct Case
 		{
 			public string id;
 			public string title;
@@ -36,20 +39,58 @@ namespace TestRailScraper
 			public string projectName;
 		}
 
-        public static void Main(string[] args)
-        {
-            Console.WriteLine("Hello World!");
+		public static void Main(string[] args)
+		{
+			Console.WriteLine("Hello World!");
 			APIClient client = ConnectToTestrail();
 
-        }
+			JArray projectsArray = GetProjects(client);
+			List<Project> projects = CreateListOfProjects(projectsArray);
+			List<Suite> suites = CreateListOfSuites(client, projects);
+			List<Case> cases = CreateListOfCases(client, projects, suites);
+
+			MongoClient mongoClient = ConnectToMongo();
+			AddToDatabase(mongoClient, cases);
+
+		}
 
 		private static APIClient ConnectToTestrail()
-        {
-            APIClient client = new APIClient("https://qatestrail.hq.unity3d.com");
-            client.User = _configReader.TestRailUser;
-            client.Password = _configReader.TestRailPass;
-            return client;
-        }
+		{
+			APIClient client = new APIClient("https://qatestrail.hq.unity3d.com");
+			client.User = _configReader.TestRailUser;
+			client.Password = _configReader.TestRailPass;
+			return client;
+		}
+        
+		private static MongoClient ConnectToMongo()
+		{
+			MongoClient mongoClient = new MongoClient(mongoConnectionString);
+			return mongoClient;
+		}
+
+		private static void AddToDatabase(MongoClient mongoClient, List<Case> cases)
+		{
+			var mongoData = mongoClient.GetDatabase("testrail");
+            var mongoCollection = mongoData.GetCollection<BsonDocument>("cases");
+
+			for (int i = 0; i < cases.Count; i++)
+			{
+				var document = new BsonDocument()
+				{
+					{"case_id", cases[i].id},
+					{"case_title", cases[i].title},
+					{"suite_id", cases[i].suiteId},
+					{"suite_name", cases[i].suiteName},
+					{"section_id", cases[i].sectionName},
+					{"section_name", cases[i].sectionName},
+					{"parent_section_id", cases[i].parentSectionId},
+					{"project_id", cases[i].projectId},
+					{"project_name", cases[i].projectName}
+				};
+
+				mongoCollection.InsertOneAsync(document);
+			}
+		}
 
 		public static JArray GetProjects(APIClient client)
         {
