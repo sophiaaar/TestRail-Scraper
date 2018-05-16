@@ -5,13 +5,13 @@ using Newtonsoft.Json.Linq;
 using MongoDB.Driver;
 using MongoDB.Bson;
 using MongoDB;
+using System.Threading.Tasks;
 
 namespace TestRailScraper
 {
 	class MainClass
 	{
 		private static readonly IConfigReader _configReader = new ConfigReader();
-		const string mongoConnectionString = ""; //redacted - insert database url here
 
 		public struct Project
 		{
@@ -47,10 +47,13 @@ namespace TestRailScraper
 			JArray projectsArray = GetProjects(client);
 			List<Project> projects = CreateListOfProjects(projectsArray);
 			List<Suite> suites = CreateListOfSuites(client, projects);
-			List<Case> cases = CreateListOfCases(client, projects, suites);
+			//List<Case> cases = CreateListOfCases(client, projects, suites);
 
 			MongoClient mongoClient = ConnectToMongo();
-			AddToDatabase(mongoClient, cases);
+
+			List<Case> cases = CreateListOfCases(client, projects, suites, mongoClient);
+
+			//AddToDatabase(mongoClient, cases);
 
 		}
 
@@ -64,14 +67,15 @@ namespace TestRailScraper
         
 		private static MongoClient ConnectToMongo()
 		{
+			string mongoConnectionString = ""; //redacted - insert database url here
 			MongoClient mongoClient = new MongoClient(mongoConnectionString);
 			return mongoClient;
 		}
 
 		private static void AddToDatabase(MongoClient mongoClient, List<Case> cases)
 		{
-			var mongoData = mongoClient.GetDatabase("testrail");
-            var mongoCollection = mongoData.GetCollection<BsonDocument>("cases");
+			var mongoData = mongoClient.GetDatabase("");
+            var mongoCollection = mongoData.GetCollection<BsonDocument>("");
 
 			for (int i = 0; i < cases.Count; i++)
 			{
@@ -92,19 +96,40 @@ namespace TestRailScraper
 			}
 		}
 
+		public static async Task AddToDatabase(MongoClient mongoClient, Case currentCase)
+        {
+            var mongoData = mongoClient.GetDatabase("release-diff-tool-dev");
+            var mongoCollection = mongoData.GetCollection<BsonDocument>("testrailcases");
+
+			var document = new BsonDocument()
+                {
+                    {"case_id", currentCase.id},
+                    {"case_title", currentCase.title},
+                    {"suite_id", currentCase.suiteId},
+                    {"suite_name", currentCase.suiteName},
+                    {"section_id", currentCase.sectionName},
+                    {"section_name", currentCase.sectionName},
+                    {"parent_section_id", currentCase.parentSectionId},
+                    {"project_id", currentCase.projectId},
+                    {"project_name", currentCase.projectName}
+                };
+
+            await mongoCollection.InsertOneAsync(document);
+        }
+
 		public static JArray GetProjects(APIClient client)
         {
-            return (JArray)client.SendGet("get_projects");
+			return (JArray)client.SendGet("get_projects" + "&is_completed=0"); //returns only active projects
         }
 
 		public static JArray GetSuitesInProject(APIClient client, string projectID)
         {
-            return (JArray)client.SendGet("get_suites/" + projectID);
+			return (JArray)client.SendGet("get_suites/" + projectID);
         }
         
-		public static JArray GetCasesInProject(APIClient client, string projectID)
+		public static JArray GetCasesInProject(APIClient client, string projectID, string suiteID)
         {
-            return (JArray)client.SendGet("get_cases/" + projectID);
+			return (JArray)client.SendGet("get_cases/" + projectID + "&suite_id=" + suiteID);
         }
 
 		public static JObject GetSection(APIClient client, string sectionID)
@@ -158,51 +183,77 @@ namespace TestRailScraper
 			return suites;
 		}
 
-		public static List<Case> CreateListOfCases(APIClient client, List<Project> projects, List<Suite> suites)
+		public static List<Case> CreateListOfCases(APIClient client, List<Project> projects, List<Suite> suites, MongoClient mongoClient)
 		{
 			List<Case> cases = new List<Case>();
 
 			for (int i = 0; i < projects.Count; i++)
 			{
-				JArray casesArray = GetCasesInProject(client, projects[i].id);
-				for (int j = 0; j < casesArray.Count; j++)
+				for (int k = 0; k < suites.Count; k++)
 				{
-					JObject caseObject = casesArray[j].ToObject<JObject>();
+					Suite currentSuite = suites.Find(o => o.projectId == projects[i].id);
+					string suiteID = currentSuite.id;
 
-					string caseId = caseObject.Property("id").Value.ToString();
-					string caseTitle = caseObject.Property("title").Value.ToString();
-					string suiteId = caseObject.Property("suite_id").Value.ToString();
-					string sectionId = caseObject.Property("section_id").Value.ToString();
-
-					Suite currentSuite = suites.Find(x => x.id == suiteId);
-					string suiteName = currentSuite.name;
-
-					string projectId = projects[i].id;
-					string projectName = projects[i].name;
-
-					JObject currentSection = GetSection(client, sectionId);
-					string sectionName = currentSection.Property("name").Value.ToString();
-
-					string parentSectionId = "0";
-
-					if (currentSection.Property("parent_id") != null)
+					JArray casesArray = GetCasesInProject(client, projects[i].id, suiteID);
+					for (int j = 0; j < casesArray.Count; j++)
 					{
-						parentSectionId = currentSection.Property("parent_id").Value.ToString();
+						JObject caseObject = casesArray[j].ToObject<JObject>();
+
+						string caseId = caseObject.Property("id").Value.ToString();
+						string caseTitle = caseObject.Property("title").Value.ToString();
+						string suiteId = caseObject.Property("suite_id").Value.ToString();
+						string sectionId = caseObject.Property("section_id").Value.ToString();
+
+						//Suite currentSuite = suites.Find(x => x.id == suiteId);
+						string suiteName = currentSuite.name;
+
+						string projectId = projects[i].id;
+						string projectName = projects[i].name;
+
+						JObject currentSection = GetSection(client, sectionId);
+						string sectionName = currentSection.Property("name").Value.ToString();
+
+						string parentSectionId = "0";
+
+						if (currentSection.Property("parent_id") != null)
+						{
+							parentSectionId = currentSection.Property("parent_id").Value.ToString();
+						}
+
+						Case currentCase;
+						currentCase.id = caseId;
+						currentCase.title = caseTitle;
+						currentCase.suiteId = suiteId;
+						currentCase.sectionId = sectionId;
+						currentCase.suiteName = suiteName;
+						currentCase.projectId = projectId;
+						currentCase.projectName = projectName;
+						currentCase.sectionName = sectionName;
+						currentCase.parentSectionId = parentSectionId;
+
+
+						Task add = AddToDatabase(mongoClient, currentCase);
+						try
+						{
+							add.Wait();
+						}
+						catch (AggregateException aggEx)
+                        {
+                            aggEx.Handle(x =>
+                            {
+                                var mwx = x as MongoWriteException;
+                                if (mwx != null && mwx.WriteError.Category == ServerErrorCategory.DuplicateKey)
+                                {
+                                    // mwx.WriteError.Message contains the duplicate key error message
+                                    return true;
+                                }
+                                return false;
+                            });
+                        }
+
+						cases.Add(currentCase);
+
 					}
-
-					Case currentCase;
-					currentCase.id = caseId;
-					currentCase.title = caseTitle;
-					currentCase.suiteId = suiteId;
-					currentCase.sectionId = sectionId;
-					currentCase.suiteName = suiteName;
-					currentCase.projectId = projectId;
-					currentCase.projectName = projectName;
-					currentCase.sectionName = sectionName;
-					currentCase.parentSectionId = parentSectionId;
-
-					cases.Add(currentCase);
-                  
 				}
 			}
 
