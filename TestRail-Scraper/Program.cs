@@ -60,7 +60,7 @@ namespace TestRailScraper
 
 		private static APIClient ConnectToTestrail()
 		{
-			APIClient client = new APIClient("https://qatestrail.hq.unity3d.com");
+			APIClient client = new APIClient("TESTRAIL SERVER");
 			client.User = _configReader.TestRailUser;
 			client.Password = _configReader.TestRailPass;
 			return client;
@@ -75,8 +75,8 @@ namespace TestRailScraper
 
 		private static void AddToDatabase(MongoClient mongoClient, List<Case> cases)
 		{
-			var mongoData = mongoClient.GetDatabase("");
-            var mongoCollection = mongoData.GetCollection<BsonDocument>("");
+			var mongoData = mongoClient.GetDatabase("DB");
+            var mongoCollection = mongoData.GetCollection<BsonDocument>("COLLECTION");
 
 			for (int i = 0; i < cases.Count; i++)
 			{
@@ -99,8 +99,8 @@ namespace TestRailScraper
 
 		public static async Task AddToDatabase(MongoClient mongoClient, Case currentCase)
         {
-            var mongoData = mongoClient.GetDatabase("");
-            var mongoCollection = mongoData.GetCollection<BsonDocument>("");
+            var mongoData = mongoClient.GetDatabase("DB");
+            var mongoCollection = mongoData.GetCollection<BsonDocument>("COLLECTION");
 
 			var document = new BsonDocument()
                 {
