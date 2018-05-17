@@ -24,6 +24,7 @@ namespace TestRailScraper
 			public string id;
 			public string name;
 			public string projectId;
+			public string projectName;
 		}
 
 		public struct Case
@@ -67,7 +68,7 @@ namespace TestRailScraper
         
 		private static MongoClient ConnectToMongo()
 		{
-			string mongoConnectionString = ""; //redacted - insert database url here
+			string mongoConnectionString = "mongodb://{username}:{password}@{server}:{port}/{database}"; //redacted - insert database url here
 			MongoClient mongoClient = new MongoClient(mongoConnectionString);
 			return mongoClient;
 		}
@@ -98,8 +99,8 @@ namespace TestRailScraper
 
 		public static async Task AddToDatabase(MongoClient mongoClient, Case currentCase)
         {
-            var mongoData = mongoClient.GetDatabase("release-diff-tool-dev");
-            var mongoCollection = mongoData.GetCollection<BsonDocument>("testrailcases");
+            var mongoData = mongoClient.GetDatabase("");
+            var mongoCollection = mongoData.GetCollection<BsonDocument>("");
 
 			var document = new BsonDocument()
                 {
@@ -107,7 +108,7 @@ namespace TestRailScraper
                     {"case_title", currentCase.title},
                     {"suite_id", currentCase.suiteId},
                     {"suite_name", currentCase.suiteName},
-                    {"section_id", currentCase.sectionName},
+                    {"section_id", currentCase.sectionId},
                     {"section_name", currentCase.sectionName},
                     {"parent_section_id", currentCase.parentSectionId},
                     {"project_id", currentCase.projectId},
@@ -151,7 +152,10 @@ namespace TestRailScraper
 				currentProject.id = projectId;
 				currentProject.name = projectName;
 
-				projects.Add(currentProject);
+				if (projectId != "1") //skip the TestProject
+				{
+					projects.Add(currentProject);
+				}
 			}
 
 			return projects;
@@ -175,6 +179,7 @@ namespace TestRailScraper
 					currentSuite.id = suiteId;
 					currentSuite.name = suiteName;
 					currentSuite.projectId = projectId;
+					currentSuite.projectName = projects[i].name;
 
 					suites.Add(currentSuite);
 				}
@@ -187,75 +192,72 @@ namespace TestRailScraper
 		{
 			List<Case> cases = new List<Case>();
 
-			for (int i = 0; i < projects.Count; i++)
-			{
-				for (int k = 0; k < suites.Count; k++)
-				{
-					Suite currentSuite = suites.Find(o => o.projectId == projects[i].id);
-					string suiteID = currentSuite.id;
+			for (int k = 0; k < suites.Count; k++)
+            {
+				Suite currentSuite = suites[k];
 
-					JArray casesArray = GetCasesInProject(client, projects[i].id, suiteID);
-					for (int j = 0; j < casesArray.Count; j++)
-					{
-						JObject caseObject = casesArray[j].ToObject<JObject>();
+				JArray casesArray = GetCasesInProject(client, currentSuite.projectId, currentSuite.id);
+                for (int j = 0; j < casesArray.Count; j++)
+                {
+                    JObject caseObject = casesArray[j].ToObject<JObject>();
 
-						string caseId = caseObject.Property("id").Value.ToString();
-						string caseTitle = caseObject.Property("title").Value.ToString();
-						string suiteId = caseObject.Property("suite_id").Value.ToString();
-						string sectionId = caseObject.Property("section_id").Value.ToString();
+                    string caseId = caseObject.Property("id").Value.ToString();
+                    string caseTitle = caseObject.Property("title").Value.ToString();
+                    string suiteId = caseObject.Property("suite_id").Value.ToString();
+                    string sectionId = caseObject.Property("section_id").Value.ToString();
 
-						//Suite currentSuite = suites.Find(x => x.id == suiteId);
-						string suiteName = currentSuite.name;
+                    //Suite currentSuite = suites.Find(x => x.id == suiteId);
+                    string suiteName = currentSuite.name;
 
-						string projectId = projects[i].id;
-						string projectName = projects[i].name;
+					string projectId = currentSuite.projectId;
+                    
+					string projectName = currentSuite.projectName;
 
-						JObject currentSection = GetSection(client, sectionId);
-						string sectionName = currentSection.Property("name").Value.ToString();
+                    JObject currentSection = GetSection(client, sectionId);
+                    string sectionName = currentSection.Property("name").Value.ToString();
 
-						string parentSectionId = "0";
+                    string parentSectionId = "0";
 
-						if (currentSection.Property("parent_id") != null)
-						{
-							parentSectionId = currentSection.Property("parent_id").Value.ToString();
-						}
+                    if (currentSection.Property("parent_id") != null)
+                    {
+                        parentSectionId = currentSection.Property("parent_id").Value.ToString();
+                    }
 
-						Case currentCase;
-						currentCase.id = caseId;
-						currentCase.title = caseTitle;
-						currentCase.suiteId = suiteId;
-						currentCase.sectionId = sectionId;
-						currentCase.suiteName = suiteName;
-						currentCase.projectId = projectId;
-						currentCase.projectName = projectName;
-						currentCase.sectionName = sectionName;
-						currentCase.parentSectionId = parentSectionId;
+                    Case currentCase;
+                    currentCase.id = caseId;
+                    currentCase.title = caseTitle;
+                    currentCase.suiteId = suiteId;
+                    currentCase.sectionId = sectionId;
+                    currentCase.suiteName = suiteName;
+                    currentCase.projectId = projectId;
+                    currentCase.projectName = projectName;
+                    currentCase.sectionName = sectionName;
+                    currentCase.parentSectionId = parentSectionId;
 
 
-						Task add = AddToDatabase(mongoClient, currentCase);
-						try
-						{
-							add.Wait();
-						}
-						catch (AggregateException aggEx)
+                    Task add = AddToDatabase(mongoClient, currentCase);
+                    try
+                    {
+                        add.Wait();
+                    }
+                    catch (AggregateException aggEx)
+                    {
+                        aggEx.Handle(x =>
                         {
-                            aggEx.Handle(x =>
+                            var mwx = x as MongoWriteException;
+                            if (mwx != null && mwx.WriteError.Category == ServerErrorCategory.DuplicateKey)
                             {
-                                var mwx = x as MongoWriteException;
-                                if (mwx != null && mwx.WriteError.Category == ServerErrorCategory.DuplicateKey)
-                                {
-                                    // mwx.WriteError.Message contains the duplicate key error message
-                                    return true;
-                                }
-                                return false;
-                            });
-                        }
+                                // mwx.WriteError.Message contains the duplicate key error message
+                                return true;
+                            }
+                            return false;
+                        });
+                    }
 
-						cases.Add(currentCase);
+                    cases.Add(currentCase);
 
-					}
-				}
-			}
+                }
+            }
 
 			return cases;
 		}
